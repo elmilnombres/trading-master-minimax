@@ -1,0 +1,72 @@
+# Alpha Strategy Configuration
+
+strategy: alpha
+bot_name: alpha_bot
+subaccount_name: BYBIT_ALPHA
+
+timeframes:
+  bias: [D1, H4]
+  context: [H1]
+  refinement: [M15]
+  trigger: [M5, M1]
+
+# Macro bias built from 5 blocks
+macro_bias_blocks:
+  - h4_structure
+  - draw_on_liquidity
+  - price_vs_poi_h4
+  - d1_context
+  - h1_internal_state
+
+bias_states:
+  allowed:
+    - bullish_continuation
+    - bearish_continuation
+    - bullish_reversal_candidate
+    - bearish_reversal_candidate
+    - neutral
+
+poi_whitelist:
+  - order_block_h4
+  - equilibrium_50
+  - fvg_m15
+  - ifvg_m15
+
+entry:
+  type: limit
+  requires_m15_refinement: true
+  trigger_on_m15_approval: false  # limit directly on refined POI
+
+h4_close_policy:
+  wait_full_candle: true
+  grace_window_seconds: 60
+
+atr:
+  period: 14
+  timeframe: M1
+  buffer_multiplier: 1.0
+
+# Sequence: bias_valid -> poi_h4_valid -> m15_refinement -> entry_zone -> limit_order
+sequence:
+  - step: macro_bias_valid
+    required: true
+  - step: poi_h4_approved
+    required: true
+  - step: m15_refinement_complete
+    required: true
+  - step: entry_zone_identified
+    required: true
+  - step: limit_order_placed
+    required: true
+
+invalidation:
+  pre_entry:
+    - h4_close_invalidates_poi
+    - price_through_poi_no_reaction
+    - m15_refinement_broken
+  post_entry:
+    - break_extreme_ob_h4_plus_buffer
+  reentry:
+    allowed: true
+    max_count: 1
+    condition: macro_poi_still_valid_and_h4_not_broken

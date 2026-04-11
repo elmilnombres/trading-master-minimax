@@ -1,0 +1,17 @@
+# Gamma subaccount — canonical risk config
+# Source of truth for all risk parameters specific to the gamma subaccount.
+
+bot_id: gamma_bot
+subaccount_name: gamma
+symbol: BTCUSDT                    # initial symbol; extend per deployment
+
+# Capital
+capital_usdt: 50.0              # subaccount balance
+
+# Risk per trade (derived in code: risk_amount_usdt = capital_usdt * risk_per_trade_pct)
+risk_per_trade_pct: 0.0035        # 0.35% of capital = 0.175 USDT max risk per trade
+                                # range approved in CLAUDE.md: 0.25–0.40%
+
+# Risk limits — these are bot-specific parameters
+# The global caps (MAX_DAILY_LOSS_PCT=2.0%, MAX_WEEKLY_LOSS_PCT=5.0%, max_portfolio_risk_pct=1.0%)
+# are frozen in CLAUDE.md and imported from code, not duplicated here.

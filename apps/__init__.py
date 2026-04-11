@@ -1,0 +1,1 @@
+# Bot entrypoints — one app per service

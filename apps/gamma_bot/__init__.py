@@ -1,0 +1,1 @@
+# Gamma bot — Phase 1 stub

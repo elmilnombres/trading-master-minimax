@@ -1,0 +1,217 @@
+# =============================================================================
+# TRADING PORTFOLIO SYSTEM — Docker Compose for Coolify 24/7 deployment
+# =============================================================================
+# Build: Coolify builds directly from the Git repository Dockerfile.
+# No pre-pushed registry image required — Coolify handles the build.
+#
+# Secrets injection:
+#   ${VAR} references below = Coolify environment variables.
+#   Set the 6 real values in Coolify's application environment variables.
+#
+# Volume mounts (named persistent volumes):
+#   trading-state      → /app/state            — bot state snapshots
+#   trading-heartbeat  → /app/heartbeat        — heartbeat files (5s interval)
+#   trading-logs       → /app/logs             — structured bot logs
+#   trading-journals   → /app/data/journals    — trade journals
+#   trading-snapshots  → /app/data/snapshots   — periodic JSON snapshots
+#   trading-cache      → /app/data/cache       — instrument filter cache
+#
+# Health check:
+#   Bots write a heartbeat file every 5s. Docker checks that the file exists
+#   and was modified within the last 2 minutes. If the bot dies → heartbeat
+#   stalls → container is marked unhealthy → Docker restarts it.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # ALPHA BOT — H4 SMC/ICT, BTCUSDT, $50 capital
+  # ---------------------------------------------------------------------------
+  alpha-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: alpha-bot
+    restart: unless-stopped
+    environment:
+      # Bot identity — drives load_bot_config("alpha_bot")
+      BOT_NAME: alpha_bot
+      SUBACCOUNT_NAME: BYBIT_ALPHA
+      PYTHONPATH: /app
+      # Runtime paths (YAML defaults work inside container with these mounts)
+      STATE_DIR: /app/state
+      HEARTBEAT_DIR: /app/heartbeat
+      LOGS_DIR: /app/logs
+      JOURNALS_DIR: /app/data/journals
+      CACHE_DIR: /app/data/cache
+      # Secrets — set these as Coolify Environment Variables
+      BYBIT_API_KEY_ALPHA_BOT: ${BYBIT_API_KEY_ALPHA_BOT}
+      BYBIT_API_SECRET_ALPHA_BOT: ${BYBIT_API_SECRET_ALPHA_BOT}
+    volumes:
+      - trading-state:/app/state
+      - trading-heartbeat:/app/heartbeat
+      - trading-logs:/app/logs
+      - trading-journals:/app/data/journals
+      - trading-snapshots:/app/data/snapshots
+      - trading-cache:/app/data/cache
+    command: ["python", "-m", "apps.alpha_bot.main"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /app/heartbeat/alpha_bot_heartbeat.json && find /app/heartbeat/alpha_bot_heartbeat.json -mmin -2 -print"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+    labels:
+      com.coolify.managed: "true"
+      com.trading.bot: "alpha"
+      com.trading.type: "bot"
+
+  # ---------------------------------------------------------------------------
+  # BETA BOT — 4-step sequence, BTCUSDT, $50 capital
+  # ---------------------------------------------------------------------------
+  beta-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: beta-bot
+    restart: unless-stopped
+    environment:
+      BOT_NAME: beta_bot
+      SUBACCOUNT_NAME: BYBIT_BETA
+      PYTHONPATH: /app
+      STATE_DIR: /app/state
+      HEARTBEAT_DIR: /app/heartbeat
+      LOGS_DIR: /app/logs
+      JOURNALS_DIR: /app/data/journals
+      CACHE_DIR: /app/data/cache
+      # Secrets
+      BYBIT_API_KEY_BETA_BOT: ${BYBIT_API_KEY_BETA_BOT}
+      BYBIT_API_SECRET_BETA_BOT: ${BYBIT_API_SECRET_BETA_BOT}
+    volumes:
+      - trading-state:/app/state
+      - trading-heartbeat:/app/heartbeat
+      - trading-logs:/app/logs
+      - trading-journals:/app/data/journals
+      - trading-snapshots:/app/data/snapshots
+      - trading-cache:/app/data/cache
+    command: ["python", "-m", "apps.beta_bot.main"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /app/heartbeat/beta_bot_heartbeat.json && find /app/heartbeat/beta_bot_heartbeat.json -mmin -2 -print"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+    labels:
+      com.coolify.managed: "true"
+      com.trading.bot: "beta"
+      com.trading.type: "bot"
+
+  # ---------------------------------------------------------------------------
+  # GAMMA BOT — 2-step reclaim, BTCUSDT, $50 capital
+  # ---------------------------------------------------------------------------
+  gamma-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gamma-bot
+    restart: unless-stopped
+    environment:
+      BOT_NAME: gamma_bot
+      SUBACCOUNT_NAME: BYBIT_GAMMA
+      PYTHONPATH: /app
+      STATE_DIR: /app/state
+      HEARTBEAT_DIR: /app/heartbeat
+      LOGS_DIR: /app/logs
+      JOURNALS_DIR: /app/data/journals
+      CACHE_DIR: /app/data/cache
+      # Secrets
+      BYBIT_API_KEY_GAMMA_BOT: ${BYBIT_API_KEY_GAMMA_BOT}
+      BYBIT_API_SECRET_GAMMA_BOT: ${BYBIT_API_SECRET_GAMMA_BOT}
+    volumes:
+      - trading-state:/app/state
+      - trading-heartbeat:/app/heartbeat
+      - trading-logs:/app/logs
+      - trading-journals:/app/data/journals
+      - trading-snapshots:/app/data/snapshots
+      - trading-cache:/app/data/cache
+    command: ["python", "-m", "apps.gamma_bot.main"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /app/heartbeat/gamma_bot_heartbeat.json && find /app/heartbeat/gamma_bot_heartbeat.json -mmin -2 -print"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+    labels:
+      com.coolify.managed: "true"
+      com.trading.bot: "gamma"
+      com.trading.type: "bot"
+
+  # ---------------------------------------------------------------------------
+  # PORTFOLIO SUPERVISOR — read-only monitor, no trade permissions
+  # ---------------------------------------------------------------------------
+  portfolio-supervisor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: portfolio-supervisor
+    restart: unless-stopped
+    environment:
+      BOT_NAME: portfolio_supervisor
+      PYTHONPATH: /app
+      # Runtime paths
+      STATE_DIR: /app/state
+      HEARTBEAT_DIR: /app/heartbeat
+      LOGS_DIR: /app/logs
+      JOURNALS_DIR: /app/data/journals
+      CACHE_DIR: /app/data/cache
+      # Supervisor is read-only — no subaccount credentials needed
+    volumes:
+      - trading-state:/app/state
+      - trading-heartbeat:/app/heartbeat
+      - trading-logs:/app/logs
+      - trading-journals:/app/data/journals
+      - trading-snapshots:/app/data/snapshots
+      - trading-cache:/app/data/cache
+    command: ["python", "-m", "apps.portfolio_supervisor.main"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /app/heartbeat/alpha_bot_heartbeat.json && find /app/heartbeat/alpha_bot_heartbeat.json -mmin -2 -print"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+    labels:
+      com.coolify.managed: "true"
+      com.trading.bot: "supervisor"
+      com.trading.type: "supervisor"
+
+# =============================================================================
+# Volumes — define here so Coolify can create/mount them as named volumes.
+# These persist across deployments and survive container restarts.
+# =============================================================================
+volumes:
+  trading-state:
+  trading-heartbeat:
+  trading-logs:
+  trading-journals:
+  trading-snapshots:
+  trading-cache:

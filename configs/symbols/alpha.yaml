@@ -1,0 +1,25 @@
+# Alpha — Symbol whitelist
+
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+  - SOLUSDT
+
+# Cluster assignments (for portfolio supervisor correlation tracking)
+clusters:
+  BTCUSDT: 1
+  ETHUSDT: 1
+  SOLUSDT: 2
+
+# Exchange-specific filter overrides per symbol
+# (exchange/bybit/filters.py will validate against real Bybit data at runtime)
+symbol_filters:
+  BTCUSDT:
+    min_order_qty_override: null  # use exchange default
+    max_order_qty_override: null
+  ETHUSDT:
+    min_order_qty_override: null
+    max_order_qty_override: null
+  SOLUSDT:
+    min_order_qty_override: null
+    max_order_qty_override: null

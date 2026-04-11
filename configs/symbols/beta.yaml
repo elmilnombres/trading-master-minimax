@@ -1,0 +1,17 @@
+# Beta — Symbol whitelist
+
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+
+clusters:
+  BTCUSDT: 1
+  ETHUSDT: 1
+
+symbol_filters:
+  BTCUSDT:
+    min_order_qty_override: null
+    max_order_qty_override: null
+  ETHUSDT:
+    min_order_qty_override: null
+    max_order_qty_override: null

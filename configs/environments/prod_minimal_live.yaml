@@ -1,0 +1,45 @@
+# Production Environment — Live Minimal Controlled
+# ============================================================
+# This file defines the ENVIRONMENT-level configuration.
+#
+# CAPITAL SOURCE OF TRUTH: per-bot risk configs, NOT this file.
+#   - configs/risk/alpha.yaml  → capital_usdt: 50.0
+#   - configs/risk/beta.yaml   → capital_usdt: 50.0
+#   - configs/risk/gamma.yaml → capital_usdt: 50.0
+#
+# This file provides shared environment settings that apply to all services.
+# Bot-specific capital, risk percentages, and sizing live in configs/risk/<bot>.yaml
+#
+# DO NOT set capital_usdt here — it is ignored by the bots.
+# ============================================================
+
+environment:
+  name: prod_minimal_live
+  mode: live
+  log_level: INFO
+
+exchange:
+  adapter: bybit
+  base_url: https://api.bybit.com
+  testnet: false
+
+bybit:
+  position_mode: one_way
+  time_in_force: GTC
+  leverage: 1
+
+telemetry:
+  structured_logs: true
+  log_dir: /app/logs
+  state_dir: /app/state
+  journals_dir: /app/data/journals
+
+alerts:
+  telegram_enabled: true
+  events:
+    - trade_open
+    - trade_close
+    - error
+    - freeze
+    - max_daily_loss
+    - restart

@@ -1,0 +1,81 @@
+# Gamma Strategy Configuration
+
+strategy: gamma
+bot_name: gamma_bot
+subaccount_name: BYBIT_GAMMA
+
+timeframes:
+  bias: [D1, H4]
+  context: [H1, M15]
+  trigger: [M5]
+
+macro_bias_blocks:
+  - h4_structure
+  - draw_on_liquidity
+  - price_vs_poi_h4
+  - d1_context
+  - h1_internal_state
+
+bias_states:
+  allowed:
+    - bullish_continuation
+    - bearish_continuation
+    - bullish_reversal_candidate
+    - bearish_reversal_candidate
+    - neutral
+
+poi_whitelist:
+  - asian_high_low
+  - london_high_low
+  - pdh_pdl_session
+  - liquidity_sweep_levels
+
+entry:
+  type: market
+  allowed_in_killzone: true
+  requires_sweep_reclaim: true
+
+h4_close_policy:
+  wait_full_candle: true
+  grace_window_seconds: 60
+
+atr:
+  period: 14
+  timeframe: M1
+  buffer_multiplier: 1.0
+
+# Killzones — UTC internal
+killzones:
+  london:
+    start_utc: "07:00"
+    end_utc: "09:00"
+  new_york:
+    start_utc: "13:30"
+    end_utc: "16:00"
+
+# Sequence: session_valid -> level_valid -> sweep_m5 -> reclaim_m5 -> entry
+sequence:
+  - step: session_valid
+    required: true
+  - step: liquidity_level_previously_traced
+    required: true
+  - step: sweep_m5
+    required: true
+  - step: reclaim_valid_close_inside_level
+    required: true
+  - step: entry_executed
+    required: true
+
+invalidation:
+  pre_entry:
+    - no_sweep_in_killzone
+    - sweep_no_reclaim
+    - m5_close_confirms_real_break_not_manipulation
+    - session_ends_without_resolution
+  post_entry:
+    - break_exact_manipulation_wick_plus_buffer
+    - reclaim_proven_false_price_continues_sweep_direction
+  reentry:
+    allowed: false
+    max_count: 0
+    condition: null

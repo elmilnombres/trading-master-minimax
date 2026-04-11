@@ -1,0 +1,17 @@
+# Beta subaccount — canonical risk config
+# Source of truth for all risk parameters specific to the beta subaccount.
+
+bot_id: beta_bot
+subaccount_name: beta
+symbol: BTCUSDT                    # initial symbol; extend per deployment
+
+# Capital
+capital_usdt: 50.0              # subaccount balance
+
+# Risk per trade (derived in code: risk_amount_usdt = capital_usdt * risk_per_trade_pct)
+risk_per_trade_pct: 0.0025        # 0.25% of capital = 0.125 USDT max risk per trade
+                                # range approved in CLAUDE.md: 0.20–0.30%
+
+# Risk limits — these are bot-specific parameters
+# The global caps (MAX_DAILY_LOSS_PCT=2.0%, MAX_WEEKLY_LOSS_PCT=5.0%, max_portfolio_risk_pct=1.0%)
+# are frozen in CLAUDE.md and imported from code, not duplicated here.

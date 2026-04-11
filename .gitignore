@@ -1,0 +1,55 @@
+# Gitignore — trading_portfolio_system
+
+# Secrets
+.env
+*.env.local
+07_SECRETS_LOCAL_ONLY.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+.eggs/
+*.egg-info/
+.venv/
+venv/
+.nox/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs/*.log
+*.log
+
+# State & data (may be mounted as volume — keep out of repo)
+data/journals/
+data/snapshots/
+data/cache/
+state/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docs output
+docs/_build/
+# Logs directory (mounted as volume)
+logs/
+
+# Temp flag files from download bundle
+=*

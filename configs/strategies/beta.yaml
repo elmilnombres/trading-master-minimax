@@ -1,0 +1,80 @@
+# Beta Strategy Configuration
+
+strategy: beta
+bot_name: beta_bot
+subaccount_name: BYBIT_BETA
+
+timeframes:
+  bias: [H4]
+  context: [H1, M15]
+  trigger: [M1]
+
+macro_bias_blocks:
+  - h4_structure
+  - draw_on_liquidity
+  - price_vs_poi_h4
+  - d1_context
+  - h1_internal_state
+
+bias_states:
+  allowed:
+    - bullish_continuation
+    - bearish_continuation
+    - bullish_reversal_candidate
+    - bearish_reversal_candidate
+    - neutral
+
+poi_whitelist:
+  - order_block_h1
+  - order_block_h4
+  - liquidity_levels
+  - fvg_extreme_m1
+  - inducement_zone
+
+entry:
+  type: limit
+  requires_sweep: true
+  requires_choch: true
+  requires_inducement: true
+  inducement_mandatory: true
+
+h4_close_policy:
+  wait_full_candle: true
+  grace_window_seconds: 60
+
+atr:
+  period: 14
+  timeframe: M1
+  buffer_multiplier: 1.0
+
+# Sequence: bias -> poi -> sweep -> choch -> inducement -> fvg_mitigation -> entry
+sequence:
+  - step: macro_bias_valid
+    required: true
+  - step: price_in_poi_h1_h4
+    required: true
+  - step: sweep_liquidity_local_m1
+    required: true
+  - step: choch_valid_body_close
+    required: true
+  - step: inducement
+    required: true
+  - step: fvg_extreme_mitigation
+    required: true
+  - step: entry_defined
+    required: true
+
+invalidation:
+  pre_entry:
+    - sweep_no_choch
+    - choch_no_inducement
+    - inducement_breaks_structure
+    - fvg_extreme_no_longer_valid
+    - macro_invalidated_before_entry
+  post_entry:
+    - break_meashe_structural_choch_plus_buffer
+    - market_invalidates_fvg_trigger
+  reentry:
+    allowed: true
+    max_count: 1
+    condition: full_new_valid_sequence

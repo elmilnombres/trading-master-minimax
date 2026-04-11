@@ -1,0 +1,24 @@
+# Runtime configuration — shared by all bots and supervisor.
+# Per-bot overrides can be placed in configs/runtime/{alpha,beta,gamma}.yaml
+# (extend default.yaml via YAML anchor or copy+override).
+
+# Tick loop interval for all bots (seconds).
+# 5s matches SUPERVISOR_POLL_INTERVAL — keeps latency bounded.
+tick_interval_seconds: 5
+
+# Supervisor poll interval (seconds) — frozen per CLAUDE.md.
+supervisor_poll_seconds: 5
+
+# Directory where each bot writes its state snapshot + journal.
+# Subdirectory per bot: {state_dir}/{bot_id}_snapshot.json
+state_dir: /app/state
+
+# Directory for heartbeat files — written by bots, read by supervisor.
+# Each bot writes: {heartbeat_dir}/{bot_id}_heartbeat.json
+heartbeat_dir: /app/heartbeat
+
+# Market data: default symbol for all bots in initial deployment.
+default_symbol: BTCUSDT
+
+# Instrument fetch: cache refresh TTL in seconds.
+instrument_cache_ttl_seconds: 300

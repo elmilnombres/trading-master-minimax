@@ -1,0 +1,1 @@
+# Beta bot — Phase 1 stub

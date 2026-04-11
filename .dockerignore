@@ -1,0 +1,58 @@
+# Git
+.git/
+.gitignore
+
+# Docs & readmes
+*.md
+docs/
+
+# Python packaging (not needed in image)
+pyproject.toml
+setup.py
+setup.cfg
+
+# Test files
+tests/
+test_*.py
+*_test.py
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Virtual envs
+.venv/
+venv/
+.env
+.env.*
+
+# Temp / flag files (those =0.27, =1.0 etc. from the download bundle)
+=*
+!requirements.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local state — never copy into image
+# These are mounted as volumes at runtime
+state/
+heartbeat/
+logs/
+data/journals/
+data/snapshots/
+data/cache/
+
+# Development / CI
+.github/
+.ci/
+scripts/
+# deploy/ is NOT excluded — deploy/healthcheck.sh is needed inside the image
+docker-compose*.yml
+Dockerfile*

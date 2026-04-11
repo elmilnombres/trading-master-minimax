@@ -1,0 +1,21 @@
+# Killzone Session Definitions
+# All times are UTC — internal logic operates exclusively in UTC.
+# App timezone (America/Argentina/Buenos_Aires) is for display only.
+
+sessions:
+  london:
+    name: London Killzone
+    start_utc: "07:00"
+    end_utc: "09:00"
+    # Standard ICT London session window
+    description: "Institutional order flow window — early London session"
+
+  new_york:
+    name: New York Killzone
+    start_utc: "13:30"
+    end_utc: "16:00"
+    # NY morning killzone — overlaps London close + NY open
+    description: "Institutional order flow window — NY morning session"
+
+# Note: session definitions here are used by Gamma bot and optional context for all bots.
+# No bot may execute a trade outside its approved session window without explicit override.
