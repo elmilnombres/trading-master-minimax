@@ -59,16 +59,22 @@ services:
                     print("[EXTRACT] %d bytes" % sz)
                     os.makedirs("/tmp/src", exist_ok=True)
                     tarfile.open("/tmp/src.tar.gz").extractall("/tmp/src")
-                    import shutil
-                    for item in os.listdir("/tmp/src"):
-                        s=os.path.join("/tmp/src",item); d=os.path.join("/app",item)
+                    import shutil, os.path
+                    extracted = os.path.join("/tmp/src", os.listdir("/tmp/src")[0])
+                    for item in os.listdir(extracted):
+                        s=os.path.join(extracted,item); d=os.path.join("/app",item)
                         if os.path.isdir(s):
                             shutil.copytree(s, d, dirs_exist_ok=True)
-                            shutil.rmtree(s)
                         else:
                             shutil.copy2(s, d)
-                            os.remove(s)
+                    shutil.rmtree("/tmp/src")
                     os.remove("/tmp/src.tar.gz")
+                    # Verify extraction landed correctly
+                    if not os.path.isdir("/app/apps"):
+                        raise RuntimeError(
+                            "[FATAL] /app/apps/ not found after extraction. "
+                            "Contents of /app/: " + str(os.listdir("/app/")))
+                    print("[EXTRACT_OK] /app/apps/ verified")
                     print("[DEPS] Installing...")
                     os.system("pip install --no-cache-dir -q pydantic pydantic-settings httpx pyyaml python-dotenv 2>&1 | tail -2")
                     update_hb("installed")
@@ -165,16 +171,22 @@ services:
                     print("[EXTRACT] %d bytes" % sz)
                     os.makedirs("/tmp/src", exist_ok=True)
                     tarfile.open("/tmp/src.tar.gz").extractall("/tmp/src")
-                    import shutil
-                    for item in os.listdir("/tmp/src"):
-                        s=os.path.join("/tmp/src",item); d=os.path.join("/app",item)
+                    import shutil, os.path
+                    extracted = os.path.join("/tmp/src", os.listdir("/tmp/src")[0])
+                    for item in os.listdir(extracted):
+                        s=os.path.join(extracted,item); d=os.path.join("/app",item)
                         if os.path.isdir(s):
                             shutil.copytree(s, d, dirs_exist_ok=True)
-                            shutil.rmtree(s)
                         else:
                             shutil.copy2(s, d)
-                            os.remove(s)
+                    shutil.rmtree("/tmp/src")
                     os.remove("/tmp/src.tar.gz")
+                    # Verify extraction landed correctly
+                    if not os.path.isdir("/app/apps"):
+                        raise RuntimeError(
+                            "[FATAL] /app/apps/ not found after extraction. "
+                            "Contents of /app/: " + str(os.listdir("/app/")))
+                    print("[EXTRACT_OK] /app/apps/ verified")
                     print("[DEPS] Installing...")
                     os.system("pip install --no-cache-dir -q pydantic pydantic-settings httpx pyyaml python-dotenv 2>&1 | tail -2")
                     update_hb("installed")
@@ -271,16 +283,22 @@ services:
                     print("[EXTRACT] %d bytes" % sz)
                     os.makedirs("/tmp/src", exist_ok=True)
                     tarfile.open("/tmp/src.tar.gz").extractall("/tmp/src")
-                    import shutil
-                    for item in os.listdir("/tmp/src"):
-                        s=os.path.join("/tmp/src",item); d=os.path.join("/app",item)
+                    import shutil, os.path
+                    extracted = os.path.join("/tmp/src", os.listdir("/tmp/src")[0])
+                    for item in os.listdir(extracted):
+                        s=os.path.join(extracted,item); d=os.path.join("/app",item)
                         if os.path.isdir(s):
                             shutil.copytree(s, d, dirs_exist_ok=True)
-                            shutil.rmtree(s)
                         else:
                             shutil.copy2(s, d)
-                            os.remove(s)
+                    shutil.rmtree("/tmp/src")
                     os.remove("/tmp/src.tar.gz")
+                    # Verify extraction landed correctly
+                    if not os.path.isdir("/app/apps"):
+                        raise RuntimeError(
+                            "[FATAL] /app/apps/ not found after extraction. "
+                            "Contents of /app/: " + str(os.listdir("/app/")))
+                    print("[EXTRACT_OK] /app/apps/ verified")
                     print("[DEPS] Installing...")
                     os.system("pip install --no-cache-dir -q pydantic pydantic-settings httpx pyyaml python-dotenv 2>&1 | tail -2")
                     update_hb("installed")
@@ -368,16 +386,22 @@ services:
                     print("[EXTRACT] %d bytes" % sz)
                     os.makedirs("/tmp/src", exist_ok=True)
                     tarfile.open("/tmp/src.tar.gz").extractall("/tmp/src")
-                    import shutil
-                    for item in os.listdir("/tmp/src"):
-                        s=os.path.join("/tmp/src",item); d=os.path.join("/app",item)
+                    import shutil, os.path
+                    extracted = os.path.join("/tmp/src", os.listdir("/tmp/src")[0])
+                    for item in os.listdir(extracted):
+                        s=os.path.join(extracted,item); d=os.path.join("/app",item)
                         if os.path.isdir(s):
                             shutil.copytree(s, d, dirs_exist_ok=True)
-                            shutil.rmtree(s)
                         else:
                             shutil.copy2(s, d)
-                            os.remove(s)
+                    shutil.rmtree("/tmp/src")
                     os.remove("/tmp/src.tar.gz")
+                    # Verify extraction landed correctly
+                    if not os.path.isdir("/app/apps"):
+                        raise RuntimeError(
+                            "[FATAL] /app/apps/ not found after extraction. "
+                            "Contents of /app/: " + str(os.listdir("/app/")))
+                    print("[EXTRACT_OK] /app/apps/ verified")
                     print("[DEPS] Installing...")
                     os.system("pip install --no-cache-dir -q pydantic pydantic-settings httpx pyyaml python-dotenv 2>&1 | tail -2")
                     update_hb("installed")
