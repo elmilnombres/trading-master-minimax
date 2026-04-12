@@ -28,11 +28,11 @@ venv/
 logs/*.log
 *.log
 
-# State & data (may be mounted as volume — keep out of repo)
-data/journals/
-data/snapshots/
-data/cache/
-state/
+# State & data (mounted as Docker volumes — keep out of repo)
+/state/               # root-level state dir (volume mount)
+data/journals/        # trade journals (volume mount)
+data/snapshots/       # state snapshots (volume mount)
+data/cache/          # market data cache (volume mount)
 
 # Docker
 .docker/
