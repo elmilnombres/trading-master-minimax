@@ -1,25 +1,9 @@
 # =============================================================================
-# TRADING PORTFOLIO SYSTEM — Docker Compose for Coolify 24/7 deployment
+# TRADING PORTFOLIO SYSTEM — Docker Compose for Coolify
 # =============================================================================
-# Build: Coolify builds directly from the Git repository Dockerfile.
-# No pre-pushed registry image required — Coolify handles the build.
-#
-# Secrets injection:
-#   ${VAR} references below = Coolify environment variables.
-#   Set the 6 real values in Coolify's application environment variables.
-#
-# Volume mounts (named persistent volumes):
-#   trading-state      → /app/state            — bot state snapshots
-#   trading-heartbeat  → /app/heartbeat        — heartbeat files (5s interval)
-#   trading-logs       → /app/logs             — structured bot logs
-#   trading-journals   → /app/data/journals    — trade journals
-#   trading-snapshots  → /app/data/snapshots   — periodic JSON snapshots
-#   trading-cache      → /app/data/cache       — instrument filter cache
-#
-# Health check:
-#   Bots write a heartbeat file every 5s. Docker checks that the file exists
-#   and was modified within the last 2 minutes. If the bot dies → heartbeat
-#   stalls → container is marked unhealthy → Docker restarts it.
+# Deployment: Coolify pulls this compose, builds nothing — uses python:3.12-slim
+# Bootstrap: each container downloads source from GitHub at runtime
+# Health check: file-based heartbeat, Docker watches /app/heartbeat/*.json
 # =============================================================================
 
 services:
@@ -28,58 +12,121 @@ services:
   # ALPHA BOT — H4 SMC/ICT, BTCUSDT, $50 capital
   # ---------------------------------------------------------------------------
   alpha-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: python:3.12-slim
     container_name: alpha-bot
     restart: unless-stopped
+    volumes:
+      - alpha-state:/app/state
+      - alpha-hb:/app/heartbeat
+      - alpha-logs:/app/logs
+      - alpha-journals:/app/data/journals
+      - alpha-snapshots:/app/data/snapshots
+      - alpha-cache:/app/data/cache
     environment:
-      # Bot identity — drives load_bot_config("alpha_bot")
       BOT_NAME: alpha_bot
       SUBACCOUNT_NAME: BYBIT_ALPHA
       PYTHONPATH: /app
-      # Runtime paths (YAML defaults work inside container with these mounts)
       STATE_DIR: /app/state
       HEARTBEAT_DIR: /app/heartbeat
       LOGS_DIR: /app/logs
       JOURNALS_DIR: /app/data/journals
       CACHE_DIR: /app/data/cache
-      # Secrets — set these as Coolify Environment Variables
-      BYBIT_API_KEY_ALPHA_BOT: ${BYBIT_API_KEY_ALPHA_BOT}
-      BYBIT_API_SECRET_ALPHA_BOT: ${BYBIT_API_SECRET_ALPHA_BOT}
-    volumes:
-      - trading-state:/app/state
-      - trading-heartbeat:/app/heartbeat
-      - trading-logs:/app/logs
-      - trading-journals:/app/data/journals
-      - trading-snapshots:/app/data/snapshots
-      - trading-cache:/app/data/cache
-    command: ["python", "-m", "apps.alpha_bot.main"]
+      BYBIT_API_KEY_ALPHA_BOT: "${BYBIT_API_KEY_ALPHA_BOT}"
+      BYBIT_API_SECRET_ALPHA_BOT: "${BYBIT_API_SECRET_ALPHA_BOT}"
+    command:
+      - python
+      - -c
+      - |
+        import urllib.request, tarfile, os, sys, time, json, subprocess
+        BOT_NAME = "alpha_bot"
+        HB_PATH = "/app/heartbeat/alpha_bot_heartbeat.json"
+        def update_hb(state, msg=""):
+            try:
+                with open(HB_PATH, "w") as f:
+                    json.dump({"bot_id": BOT_NAME, "status": state, "msg": msg, "ts": time.time(), "pid": os.getpid()}, f)
+            except: pass
+        update_hb("booting")
+        print("[0] HB written - bot: " + BOT_NAME)
+        proc = None
+        while True:
+            try:
+                if proc is None:
+                    print("[DOWNLOAD] Fetching tarball...")
+                    urllib.request.urlretrieve(
+                        "https://github.com/elmilnombres/trading-master-minimax/archive/refs/heads/master.tar.gz",
+                        "/tmp/src.tar.gz")
+                    sz = os.path.getsize("/tmp/src.tar.gz")
+                    print("[EXTRACT] %d bytes" % sz)
+                    os.makedirs("/tmp/src", exist_ok=True)
+                    tarfile.open("/tmp/src.tar.gz").extractall("/tmp/src")
+                    for item in os.listdir("/tmp/src"):
+                        s=os.path.join("/tmp/src",item); d=os.path.join("/app",item)
+                        if os.path.isdir(s):
+                            if os.path.exists(d): os.system("rm -rf "+d)
+                            os.rename(s,d)
+                        else:
+                            if os.path.exists(d): os.remove(d)
+                            os.rename(s,d)
+                    os.remove("/tmp/src.tar.gz")
+                    print("[DEPS] Installing...")
+                    os.system("pip install --no-cache-dir -q pydantic pydantic-settings httpx pyyaml python-dotenv 2>&1 | tail -2")
+                    update_hb("installed")
+                    print("[READY] Starting: apps.alpha_bot.main")
+                    sys.stdout.flush()
+                else:
+                    print("[RESTART] Waiting 5s before restart...")
+                    update_hb("restarting")
+                    time.sleep(5)
+            except Exception as e:
+                print("[ERR] " + str(e)); import traceback; traceback.print_exc()
+                update_hb("bootstrap_err", str(e))
+                time.sleep(5)
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "apps.alpha_bot.main"],
+                    cwd="/app",
+                    env={**os.environ, "PYTHONPATH": "/app"})
+                print("[BOT] PID=%d" % proc.pid)
+                update_hb("running")
+                sys.stdout.flush()
+                while proc.poll() is None:
+                    time.sleep(5)
+                    update_hb("running")
+                rc = proc.returncode
+                print("[BOT_DIED] rc=%d" % rc)
+                update_hb("bot_died", "rc=%d" % rc)
+                proc = None
+            except Exception as e:
+                print("[ERR bot] " + str(e)); import traceback; traceback.print_exc()
+                update_hb("bot_err", str(e))
+                proc = None
+                time.sleep(5)
     healthcheck:
-      test: ["CMD-SHELL", "test -f /app/heartbeat/alpha_bot_heartbeat.json && find /app/heartbeat/alpha_bot_heartbeat.json -mmin -2 -print"]
+      test:
+        - CMD-SHELL
+        - test -f /app/heartbeat/alpha_bot_heartbeat.json
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 10
+      timeout: 60s
+      retries: 30
+      start_period: 120s
     labels:
-      com.coolify.managed: "true"
-      com.trading.bot: "alpha"
-      com.trading.type: "bot"
+      - coolify.managed=true
+      - coolify.version=4.0.0-beta.470
 
   # ---------------------------------------------------------------------------
   # BETA BOT — 4-step sequence, BTCUSDT, $50 capital
   # ---------------------------------------------------------------------------
   beta-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: python:3.12-slim
     container_name: beta-bot
     restart: unless-stopped
+    volumes:
+      - beta-state:/app/state
+      - beta-hb:/app/heartbeat
+      - beta-logs:/app/logs
+      - beta-journals:/app/data/journals
+      - beta-snapshots:/app/data/snapshots
+      - beta-cache:/app/data/cache
     environment:
       BOT_NAME: beta_bot
       SUBACCOUNT_NAME: BYBIT_BETA
@@ -89,42 +136,102 @@ services:
       LOGS_DIR: /app/logs
       JOURNALS_DIR: /app/data/journals
       CACHE_DIR: /app/data/cache
-      # Secrets
-      BYBIT_API_KEY_BETA_BOT: ${BYBIT_API_KEY_BETA_BOT}
-      BYBIT_API_SECRET_BETA_BOT: ${BYBIT_API_SECRET_BETA_BOT}
-    volumes:
-      - trading-state:/app/state
-      - trading-heartbeat:/app/heartbeat
-      - trading-logs:/app/logs
-      - trading-journals:/app/data/journals
-      - trading-snapshots:/app/data/snapshots
-      - trading-cache:/app/data/cache
-    command: ["python", "-m", "apps.beta_bot.main"]
+      BYBIT_API_KEY_BETA_BOT: "${BYBIT_API_KEY_BETA_BOT}"
+      BYBIT_API_SECRET_BETA_BOT: "${BYBIT_API_SECRET_BETA_BOT}"
+    command:
+      - python
+      - -c
+      - |
+        import urllib.request, tarfile, os, sys, time, json, subprocess
+        BOT_NAME = "beta_bot"
+        HB_PATH = "/app/heartbeat/beta_bot_heartbeat.json"
+        def update_hb(state, msg=""):
+            try:
+                with open(HB_PATH, "w") as f:
+                    json.dump({"bot_id": BOT_NAME, "status": state, "msg": msg, "ts": time.time(), "pid": os.getpid()}, f)
+            except: pass
+        update_hb("booting")
+        print("[0] HB written - bot: " + BOT_NAME)
+        proc = None
+        while True:
+            try:
+                if proc is None:
+                    print("[DOWNLOAD] Fetching tarball...")
+                    urllib.request.urlretrieve(
+                        "https://github.com/elmilnombres/trading-master-minimax/archive/refs/heads/master.tar.gz",
+                        "/tmp/src.tar.gz")
+                    sz = os.path.getsize("/tmp/src.tar.gz")
+                    print("[EXTRACT] %d bytes" % sz)
+                    os.makedirs("/tmp/src", exist_ok=True)
+                    tarfile.open("/tmp/src.tar.gz").extractall("/tmp/src")
+                    for item in os.listdir("/tmp/src"):
+                        s=os.path.join("/tmp/src",item); d=os.path.join("/app",item)
+                        if os.path.isdir(s):
+                            if os.path.exists(d): os.system("rm -rf "+d)
+                            os.rename(s,d)
+                        else:
+                            if os.path.exists(d): os.remove(d)
+                            os.rename(s,d)
+                    os.remove("/tmp/src.tar.gz")
+                    print("[DEPS] Installing...")
+                    os.system("pip install --no-cache-dir -q pydantic pydantic-settings httpx pyyaml python-dotenv 2>&1 | tail -2")
+                    update_hb("installed")
+                    print("[READY] Starting: apps.beta_bot.main")
+                    sys.stdout.flush()
+                else:
+                    print("[RESTART] Waiting 5s before restart...")
+                    update_hb("restarting")
+                    time.sleep(5)
+            except Exception as e:
+                print("[ERR] " + str(e)); import traceback; traceback.print_exc()
+                update_hb("bootstrap_err", str(e))
+                time.sleep(5)
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "apps.beta_bot.main"],
+                    cwd="/app",
+                    env={**os.environ, "PYTHONPATH": "/app"})
+                print("[BOT] PID=%d" % proc.pid)
+                update_hb("running")
+                sys.stdout.flush()
+                while proc.poll() is None:
+                    time.sleep(5)
+                    update_hb("running")
+                rc = proc.returncode
+                print("[BOT_DIED] rc=%d" % rc)
+                update_hb("bot_died", "rc=%d" % rc)
+                proc = None
+            except Exception as e:
+                print("[ERR bot] " + str(e)); import traceback; traceback.print_exc()
+                update_hb("bot_err", str(e))
+                proc = None
+                time.sleep(5)
     healthcheck:
-      test: ["CMD-SHELL", "test -f /app/heartbeat/beta_bot_heartbeat.json && find /app/heartbeat/beta_bot_heartbeat.json -mmin -2 -print"]
+      test:
+        - CMD-SHELL
+        - test -f /app/heartbeat/beta_bot_heartbeat.json
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 10
+      timeout: 60s
+      retries: 30
+      start_period: 120s
     labels:
-      com.coolify.managed: "true"
-      com.trading.bot: "beta"
-      com.trading.type: "bot"
+      - coolify.managed=true
+      - coolify.version=4.0.0-beta.470
 
   # ---------------------------------------------------------------------------
   # GAMMA BOT — 2-step reclaim, BTCUSDT, $50 capital
   # ---------------------------------------------------------------------------
   gamma-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: python:3.12-slim
     container_name: gamma-bot
     restart: unless-stopped
+    volumes:
+      - gamma-state:/app/state
+      - gamma-hb:/app/heartbeat
+      - gamma-logs:/app/logs
+      - gamma-journals:/app/data/journals
+      - gamma-snapshots:/app/data/snapshots
+      - gamma-cache:/app/data/cache
     environment:
       BOT_NAME: gamma_bot
       SUBACCOUNT_NAME: BYBIT_GAMMA
@@ -134,84 +241,203 @@ services:
       LOGS_DIR: /app/logs
       JOURNALS_DIR: /app/data/journals
       CACHE_DIR: /app/data/cache
-      # Secrets
-      BYBIT_API_KEY_GAMMA_BOT: ${BYBIT_API_KEY_GAMMA_BOT}
-      BYBIT_API_SECRET_GAMMA_BOT: ${BYBIT_API_SECRET_GAMMA_BOT}
-    volumes:
-      - trading-state:/app/state
-      - trading-heartbeat:/app/heartbeat
-      - trading-logs:/app/logs
-      - trading-journals:/app/data/journals
-      - trading-snapshots:/app/data/snapshots
-      - trading-cache:/app/data/cache
-    command: ["python", "-m", "apps.gamma_bot.main"]
+      BYBIT_API_KEY_GAMMA_BOT: "${BYBIT_API_KEY_GAMMA_BOT}"
+      BYBIT_API_SECRET_GAMMA_BOT: "${BYBIT_API_SECRET_GAMMA_BOT}"
+    command:
+      - python
+      - -c
+      - |
+        import urllib.request, tarfile, os, sys, time, json, subprocess
+        BOT_NAME = "gamma_bot"
+        HB_PATH = "/app/heartbeat/gamma_bot_heartbeat.json"
+        def update_hb(state, msg=""):
+            try:
+                with open(HB_PATH, "w") as f:
+                    json.dump({"bot_id": BOT_NAME, "status": state, "msg": msg, "ts": time.time(), "pid": os.getpid()}, f)
+            except: pass
+        update_hb("booting")
+        print("[0] HB written - bot: " + BOT_NAME)
+        proc = None
+        while True:
+            try:
+                if proc is None:
+                    print("[DOWNLOAD] Fetching tarball...")
+                    urllib.request.urlretrieve(
+                        "https://github.com/elmilnombres/trading-master-minimax/archive/refs/heads/master.tar.gz",
+                        "/tmp/src.tar.gz")
+                    sz = os.path.getsize("/tmp/src.tar.gz")
+                    print("[EXTRACT] %d bytes" % sz)
+                    os.makedirs("/tmp/src", exist_ok=True)
+                    tarfile.open("/tmp/src.tar.gz").extractall("/tmp/src")
+                    for item in os.listdir("/tmp/src"):
+                        s=os.path.join("/tmp/src",item); d=os.path.join("/app",item)
+                        if os.path.isdir(s):
+                            if os.path.exists(d): os.system("rm -rf "+d)
+                            os.rename(s,d)
+                        else:
+                            if os.path.exists(d): os.remove(d)
+                            os.rename(s,d)
+                    os.remove("/tmp/src.tar.gz")
+                    print("[DEPS] Installing...")
+                    os.system("pip install --no-cache-dir -q pydantic pydantic-settings httpx pyyaml python-dotenv 2>&1 | tail -2")
+                    update_hb("installed")
+                    print("[READY] Starting: apps.gamma_bot.main")
+                    sys.stdout.flush()
+                else:
+                    print("[RESTART] Waiting 5s before restart...")
+                    update_hb("restarting")
+                    time.sleep(5)
+            except Exception as e:
+                print("[ERR] " + str(e)); import traceback; traceback.print_exc()
+                update_hb("bootstrap_err", str(e))
+                time.sleep(5)
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "apps.gamma_bot.main"],
+                    cwd="/app",
+                    env={**os.environ, "PYTHONPATH": "/app"})
+                print("[BOT] PID=%d" % proc.pid)
+                update_hb("running")
+                sys.stdout.flush()
+                while proc.poll() is None:
+                    time.sleep(5)
+                    update_hb("running")
+                rc = proc.returncode
+                print("[BOT_DIED] rc=%d" % rc)
+                update_hb("bot_died", "rc=%d" % rc)
+                proc = None
+            except Exception as e:
+                print("[ERR bot] " + str(e)); import traceback; traceback.print_exc()
+                update_hb("bot_err", str(e))
+                proc = None
+                time.sleep(5)
     healthcheck:
-      test: ["CMD-SHELL", "test -f /app/heartbeat/gamma_bot_heartbeat.json && find /app/heartbeat/gamma_bot_heartbeat.json -mmin -2 -print"]
+      test:
+        - CMD-SHELL
+        - test -f /app/heartbeat/gamma_bot_heartbeat.json
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 10
+      timeout: 60s
+      retries: 30
+      start_period: 120s
     labels:
-      com.coolify.managed: "true"
-      com.trading.bot: "gamma"
-      com.trading.type: "bot"
+      - coolify.managed=true
+      - coolify.version=4.0.0-beta.470
 
   # ---------------------------------------------------------------------------
   # PORTFOLIO SUPERVISOR — read-only monitor, no trade permissions
   # ---------------------------------------------------------------------------
   portfolio-supervisor:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: python:3.12-slim
     container_name: portfolio-supervisor
     restart: unless-stopped
+    volumes:
+      - supervisor-state:/app/state
+      - supervisor-hb:/app/heartbeat
+      - supervisor-logs:/app/logs
     environment:
       BOT_NAME: portfolio_supervisor
       PYTHONPATH: /app
-      # Runtime paths
       STATE_DIR: /app/state
       HEARTBEAT_DIR: /app/heartbeat
       LOGS_DIR: /app/logs
-      JOURNALS_DIR: /app/data/journals
-      CACHE_DIR: /app/data/cache
-      # Supervisor is read-only — no subaccount credentials needed
-    volumes:
-      - trading-state:/app/state
-      - trading-heartbeat:/app/heartbeat
-      - trading-logs:/app/logs
-      - trading-journals:/app/data/journals
-      - trading-snapshots:/app/data/snapshots
-      - trading-cache:/app/data/cache
-    command: ["python", "-m", "apps.portfolio_supervisor.main"]
+    command:
+      - python
+      - -c
+      - |
+        import urllib.request, tarfile, os, sys, time, json, subprocess
+        HB_PATH = "/app/heartbeat/portfolio_supervisor_heartbeat.json"
+        def update_hb(state, msg=""):
+            try:
+                with open(HB_PATH, "w") as f:
+                    json.dump({"bot_id": "portfolio_supervisor", "status": state, "msg": msg, "ts": time.time(), "pid": os.getpid()}, f)
+            except: pass
+        update_hb("booting")
+        print("[0] HB written")
+        proc = None
+        while True:
+            try:
+                if proc is None:
+                    print("[DOWNLOAD] Fetching tarball...")
+                    urllib.request.urlretrieve(
+                        "https://github.com/elmilnombres/trading-master-minimax/archive/refs/heads/master.tar.gz",
+                        "/tmp/src.tar.gz")
+                    sz = os.path.getsize("/tmp/src.tar.gz")
+                    print("[EXTRACT] %d bytes" % sz)
+                    os.makedirs("/tmp/src", exist_ok=True)
+                    tarfile.open("/tmp/src.tar.gz").extractall("/tmp/src")
+                    for item in os.listdir("/tmp/src"):
+                        s=os.path.join("/tmp/src",item); d=os.path.join("/app",item)
+                        if os.path.isdir(s):
+                            if os.path.exists(d): os.system("rm -rf "+d)
+                            os.rename(s,d)
+                        else:
+                            if os.path.exists(d): os.remove(d)
+                            os.rename(s,d)
+                    os.remove("/tmp/src.tar.gz")
+                    print("[DEPS] Installing...")
+                    os.system("pip install --no-cache-dir -q pydantic pydantic-settings httpx pyyaml python-dotenv 2>&1 | tail -2")
+                    update_hb("installed")
+                    print("[READY] Starting supervisor")
+                    sys.stdout.flush()
+                else:
+                    print("[RESTART] Waiting 5s...")
+                    update_hb("restarting")
+                    time.sleep(5)
+            except Exception as e:
+                print("[ERR] " + str(e)); import traceback; traceback.print_exc()
+                update_hb("bootstrap_err", str(e))
+                time.sleep(5)
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "apps.portfolio_supervisor.main"],
+                    cwd="/app",
+                    env={**os.environ, "PYTHONPATH": "/app"})
+                print("[SUPERVISOR] PID=%d" % proc.pid)
+                update_hb("running")
+                sys.stdout.flush()
+                while proc.poll() is None:
+                    time.sleep(5)
+                    update_hb("running")
+                rc = proc.returncode
+                print("[SUPERVISOR_DIED] rc=%d" % rc)
+                update_hb("died", "rc=%d" % rc)
+                proc = None
+            except Exception as e:
+                print("[ERR] " + str(e)); import traceback; traceback.print_exc()
+                update_hb("err", str(e))
+                proc = None
+                time.sleep(5)
     healthcheck:
-      test: ["CMD-SHELL", "test -f /app/heartbeat/alpha_bot_heartbeat.json && find /app/heartbeat/alpha_bot_heartbeat.json -mmin -2 -print"]
+      test:
+        - CMD-SHELL
+        - test -f /app/heartbeat/portfolio_supervisor_heartbeat.json
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 10
+      timeout: 60s
+      retries: 30
+      start_period: 120s
     labels:
-      com.coolify.managed: "true"
-      com.trading.bot: "supervisor"
-      com.trading.type: "supervisor"
+      - coolify.managed=true
+      - coolify.version=4.0.0-beta.470
 
-# =============================================================================
-# Volumes — define here so Coolify can create/mount them as named volumes.
-# These persist across deployments and survive container restarts.
-# =============================================================================
 volumes:
-  trading-state:
-  trading-heartbeat:
-  trading-logs:
-  trading-journals:
-  trading-snapshots:
-  trading-cache:
+  alpha-state: null
+  alpha-hb: null
+  alpha-logs: null
+  alpha-journals: null
+  alpha-snapshots: null
+  alpha-cache: null
+  beta-state: null
+  beta-hb: null
+  beta-logs: null
+  beta-journals: null
+  beta-snapshots: null
+  beta-cache: null
+  gamma-state: null
+  gamma-hb: null
+  gamma-logs: null
+  gamma-journals: null
+  gamma-snapshots: null
+  gamma-cache: null
+  supervisor-state: null
+  supervisor-hb: null
+  supervisor-logs: null
