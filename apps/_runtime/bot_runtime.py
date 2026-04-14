@@ -293,7 +293,17 @@ class BotRuntime:
             self._apply_reconciliation_finding(f)
 
     def _reconcile_tick(self) -> None:
-        """Poll Bybit for status of all known non-terminal orders."""
+        """
+        Poll Bybit for status of all known non-terminal orders.
+
+        Adaptive poll interval:
+        - No active orders and no local position → 60s interval
+        - Active orders or open local position → 5s interval
+        """
+        local_state = self._store.get_state()
+        has_active_position = local_state.open_position is not None
+        self._reconciliation._set_adaptive_interval(has_active_position)
+
         findings = self._reconciliation.poll()
         for f in findings:
             self._apply_reconciliation_finding(f)
@@ -390,40 +400,41 @@ class BotRuntime:
 
     def _sync_positions(self, symbol: str, snapshot: MarketSnapshot) -> None:
         """
-        Sync local position state with Bybit on every tick.
+        Sync local position state with Bybit.
 
-        Exchange truth is authoritative. If the position no longer exists on Bybit
-        (stop loss, take profit, or manual close), close the signal.
+        Phase A optimization:
+        - If we already have a local position, trust it — no REST call needed.
+        - REST call only when local position is None (cold recovery from Bybit).
 
-        On restart recovery: when a position exists on Bybit but not in local
-        state, attempt to recover the signal_id by querying Bybit for open orders
-        and looking up the corresponding lifecycle record.
+        Exchange truth is authoritative when local position is None.
+        If a position exists on Bybit but not locally, recover it.
+        If local position exists and exchange has it too, trust local (tick-by-tick
+        position QTY changes are handled by the reconciliation flow).
         """
-        exchange_positions = self._exec_adapter.get_positions(symbol)
         local_state = self._store.get_state()
         local_position = local_state.open_position
 
+        # Phase A: skip REST call if we already track a position locally
+        if local_position is not None:
+            return
+
+        # No local position — authoritative sync from Bybit (cold recovery)
+        exchange_positions = self._exec_adapter.get_positions(symbol)
+
         if not exchange_positions:
-            if local_position is not None:
-                self._close_position_from_exchange(local_position)
+            # No position anywhere — nothing to recover
             return
 
         position = BybitAdapter.parse_position(exchange_positions[0])
         if position is None:
-            if local_position is not None:
-                self._close_position_from_exchange(local_position)
             return
 
-        if local_position is None:
-            # Position exists on Bybit but not in local state — recover.
-            # Try to link to the correct signal by querying Bybit's open orders.
-            recovered_signal_id = self._recover_signal_id_for_position(symbol, position)
-            position.signal_id = recovered_signal_id
-            position.bot_id = self._cfg.bot_id
-            position.subaccount_name = self._cfg.subaccount_name
-            self._store.set_open_position(position)
-        elif local_position.qty != position.qty:
-            self._store.set_open_position(position)
+        # Position exists on Bybit but not in local state — recover it
+        recovered_signal_id = self._recover_signal_id_for_position(symbol, position)
+        position.signal_id = recovered_signal_id
+        position.bot_id = self._cfg.bot_id
+        position.subaccount_name = self._cfg.subaccount_name
+        self._store.set_open_position(position)
 
     def _close_position_from_exchange(self, position: Position) -> None:
         """

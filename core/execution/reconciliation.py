@@ -59,15 +59,35 @@ class ReconciliationService:
 
     Authoritative rule: exchange truth wins on restart.
 
-    poll_interval: set to SUPERVISOR_POLL_INTERVAL = 5s (frozen).
+    Adaptive poll interval (Phase A):
+    - No active orders and no open position → poll every 60s (low-frequency)
+    - Active orders or open position → poll every 5s (high-frequency)
     """
 
-    POLL_INTERVAL_SECONDS = 5  # frozen per CLAUDE.md SUPERVISOR_POLL_INTERVAL
+    POLL_INTERVAL_FLAT_SECONDS = 60   # when no active orders/positions
+    POLL_INTERVAL_ACTIVE_SECONDS = 5 # when active orders or open position
 
     def __init__(self, adapter: ExecutionAdapter, symbol: str):
         self._adapter = adapter
         self._symbol = symbol
-        self._known_orders: dict[str, OrderStatus] = {}  # client_order_id → local status
+        self._known_orders: dict[str, OrderStatus] = {}
+        self._last_poll_at: float = 0.0
+        self._poll_interval: float = self.POLL_INTERVAL_FLAT_SECONDS
+
+    def has_active_orders(self) -> bool:
+        """Returns True if any known order is non-terminal."""
+        return any(not s.is_final() for s in self._known_orders.values())
+
+    def set_poll_interval(self, seconds: float) -> None:
+        """Manually set the poll interval (used by bot_runtime to override)."""
+        self._poll_interval = seconds
+
+    def _set_adaptive_interval(self, has_active_position: bool) -> None:
+        """Update poll interval based on current state."""
+        if self.has_active_orders() or has_active_position:
+            self._poll_interval = self.POLL_INTERVAL_ACTIVE_SECONDS
+        else:
+            self._poll_interval = self.POLL_INTERVAL_FLAT_SECONDS
 
     def register_order(self, client_order_id: str, local_status: OrderStatus) -> None:
         """Record that we know about this order."""
@@ -124,9 +144,19 @@ class ReconciliationService:
         """
         Periodic poll of all known active orders.
 
-        Queries Bybit for current status of each known non-terminal order.
-        Returns any divergences for the caller to act on.
+        Respects adaptive poll interval:
+        - No active orders and no position → POLL_INTERVAL_FLAT_SECONDS (60s)
+        - Active orders or open position → POLL_INTERVAL_ACTIVE_SECONDS (5s)
+
+        Uses monotonic time to avoid clock drift issues.
         """
+        import time as time_module
+
+        now = time_module.monotonic()
+        if now - self._last_poll_at < self._poll_interval:
+            return []
+
+        self._last_poll_at = now
         findings: list[ReconciliationFinding] = []
 
         for cid, local_status in self._known_orders.items():

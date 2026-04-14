@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from core.rate_limiter.governor import RateLimitGovernor
+
 
 class BybitClient:
     """
@@ -24,6 +26,7 @@ class BybitClient:
         self.api_key = api_key
         self.api_secret = api_secret
         self.recv_window = recv_window
+        self._governor = RateLimitGovernor()
 
     def _sign(self, params: dict[str, Any], timestamp: int) -> str:
         """
@@ -47,6 +50,10 @@ class BybitClient:
         subaccount: str | None = None,
     ) -> dict[str, Any]:
         """Send signed request to Bybit API v5."""
+        # Rate-limit throttle check before sending
+        if self._governor.should_throttle():
+            time.sleep(self._governor.get_cooldown_seconds())
+
         timestamp = int(time.time() * 1000)
         signed_params = (params or {}).copy()
         signature = self._sign(signed_params, timestamp)
@@ -78,6 +85,29 @@ class BybitClient:
 
         response.raise_for_status()
         data = response.json()
+
+        # Record response headers in governor (reset on success, backoff on 10006)
+        self._governor.record_response(dict(response.headers), data.get("retCode"))
+
+        # Handle 10006: sleep cooldown and retry once
+        if data.get("retCode") == 10006:
+            time.sleep(self._governor.get_cooldown_seconds())
+            # Retry once after cooldown
+            timestamp = int(time.time() * 1000)
+            signature = self._sign(signed_params, timestamp)
+            headers["X-BAPI-TIMESTAMP"] = str(timestamp)
+            with httpx.Client(timeout=30.0) as client2:
+                if method == "GET":
+                    response = client2.get(url, headers=headers, params=signed_params)
+                elif method == "POST":
+                    response = client2.post(url, headers=headers, json=signed_params)
+                elif method == "PUT":
+                    response = client2.put(url, headers=headers, json=signed_params)
+                elif method == "DELETE":
+                    response = client2.delete(url, headers=headers, json=signed_params)
+            response.raise_for_status()
+            data = response.json()
+            self._governor.record_response(dict(response.headers), data.get("retCode"))
 
         # Bybit error structure
         if data.get("retCode") != 0:
