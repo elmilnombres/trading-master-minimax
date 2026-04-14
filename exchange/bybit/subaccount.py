@@ -7,6 +7,7 @@ Supervisor permissions: READ-ONLY (no trade methods exposed here).
 
 from exchange.bybit.client import BybitClient, BybitAPIError
 from exchange.bybit.adapter import BybitAdapter
+from core.rate_limiter.governor import RateLimitGovernor
 
 
 class BybitSubaccountClient:
@@ -23,6 +24,10 @@ class BybitSubaccountClient:
     @property
     def client(self) -> BybitClient:
         return self._client
+
+    @property
+    def governor(self) -> RateLimitGovernor:
+        return self._client._governor
 
     # ---- Market Data (no subaccount needed) ----
 

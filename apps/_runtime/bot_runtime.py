@@ -44,6 +44,7 @@ from core.execution.reconciliation import ReconciliationService
 from core.execution.lifecycle import OrderLifecycleManager, LifecycleEvent
 from core.execution.idempotency import IdempotencyManager
 from core.execution.errors import RetryableExchangeError
+from exchange.bybit.client import BybitAPIError
 from core.market_data.fetcher import MarketDataFetcher
 from core.market_data.provider import MarketDataProvider
 from core.market_data.types import MarketSnapshot
@@ -243,34 +244,69 @@ class BotRuntime:
         """One tick of the bot loop."""
         symbol = self._cfg.symbol
 
-        # 1. Reconciliation
-        self._reconcile_tick()
+        # 0. Pre-tick hard skip: if cooldown active, skip REST work entirely
+        if self._subaccount_client.governor.should_skip_tick():
+            self._heartbeat.write(
+                status="frozen" if self._store.get_state().is_frozen else "running",
+                is_frozen=self._store.get_state().is_frozen,
+            )
+            time.sleep(self._rt.tick_interval_seconds)
+            return
 
-        # 2. Market data snapshot
-        snapshot = self._market_data.get_snapshot(symbol)
+        try:
+            # 1. Reconciliation
+            self._reconcile_tick()
 
-        # 3. Position sync — detect fills, stops, TPs from Bybit
-        self._sync_positions(symbol, snapshot)
+            # 2. Market data snapshot
+            snapshot = self._market_data.get_snapshot(symbol)
 
-        # 4. Strategy evaluation
-        timeframes = [
-            Timeframe.M1, Timeframe.M5, Timeframe.M15,
-            Timeframe.H1, Timeframe.H4, Timeframe.D1,
-        ]
-        candles = self._market_data.get_multi_timeframe_candles(
-            symbol, timeframes, count=50
-        )
+            # 3. Position sync — detect fills, stops, TPs from Bybit
+            self._sync_positions(symbol, snapshot)
 
-        signal = self._adapter_strat.evaluate(
-            symbol,
-            candles,
-            snapshot,
-            previous_bias=self._store.get_state().current_bias,
-        )
+            # 4. Strategy evaluation
+            timeframes = [
+                Timeframe.M1, Timeframe.M5, Timeframe.M15,
+                Timeframe.H1, Timeframe.H4, Timeframe.D1,
+            ]
+            candles = self._market_data.get_multi_timeframe_candles(
+                symbol, timeframes, count=50
+            )
 
-        # 5. Execute new signal
-        if signal is not None:
-            self._execute_signal(signal, snapshot)
+            signal = self._adapter_strat.evaluate(
+                symbol,
+                candles,
+                snapshot,
+                previous_bias=self._store.get_state().current_bias,
+            )
+
+            # 5. Execute new signal
+            if signal is not None:
+                self._execute_signal(signal, snapshot)
+
+            # Clean tick: advance post-cooldown recovery counter
+            self._subaccount_client.governor.mark_tick_clean()
+
+        except RetryableExchangeError as e:
+            if e.code == 10006:
+                # Governor already updated by client.py — just abort tick
+                self._heartbeat.write(
+                    status="frozen" if self._store.get_state().is_frozen else "running",
+                    is_frozen=self._store.get_state().is_frozen,
+                )
+                time.sleep(self._rt.tick_interval_seconds)
+                return
+            raise
+
+        except BybitAPIError as e:
+            if e.code == 10006:
+                # Market-data path: Governor already updated by client.py — just abort tick
+                self._heartbeat.write(
+                    status="frozen" if self._store.get_state().is_frozen else "running",
+                    is_frozen=self._store.get_state().is_frozen,
+                )
+                time.sleep(self._rt.tick_interval_seconds)
+                return
+            raise
 
     # ---- Reconciliation ----
 

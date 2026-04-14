@@ -23,7 +23,7 @@ from core.execution.errors import RetryableExchangeError
 # Retry policy for transient Bybit errors.
 MAX_RETRIES = 3
 RETRY_BASE_DELAY_SECONDS = 1.0
-RETRY_CODES = {28936, 10002, 10006, 10007, 10008, 10009}  # rate limit + server errors
+RETRY_CODES = {28936, 10002, 10007, 10008, 10009}  # 10006 REMOVED — handled at client level as abort
 
 
 def _is_retryable(code: int) -> bool:
@@ -181,10 +181,11 @@ class BybitExecutionAdapter:
             for item in items:
                 if item.get("clientOrderId") == client_order_id:
                     return self._parse_order_item(item)
-        except Exception as e:
-            # Unexpected error on open-order query — fail-closed
+        except BybitAPIError as e:
             raise RetryableExchangeError(
-                f"open-order lookup failed for {client_order_id}: {e}"
+                f"open-order lookup failed for {client_order_id}: {e}",
+                code=e.code,
+                original=e,
             ) from e
 
         # Step 2: not in open orders — check order history (/v5/order/list)
@@ -200,9 +201,11 @@ class BybitExecutionAdapter:
                     return self._parse_order_item(item)
             # Not found in either open orders or order history — never existed
             return None
-        except Exception as e:
+        except BybitAPIError as e:
             raise RetryableExchangeError(
-                f"order-history lookup failed for {client_order_id}: {e}"
+                f"order-history lookup failed for {client_order_id}: {e}",
+                code=e.code,
+                original=e,
             ) from e
 
     def get_open_orders(self, symbol: str) -> list[Order]:

@@ -52,90 +52,90 @@ class RateLimitGovernor:
         self._reset()
 
     def _reset(self) -> None:
-        self._remaining: int = 100  # optimistic default
+        self._remaining: int = 100
         self._backoff_multiplier: float = 0.0
         self._last_10006_at: float = 0.0
         self._cooldown_until: float = 0.0
+        self._cooldown_set: bool = False
+        self._post_cooldown_clean_ticks: int = 0
 
-    def record_response(
-        self,
-        headers: Optional[dict[str, str]],
-        ret_code: Optional[int],
-    ) -> None:
-        """
-        Record response headers and retCode after every REST call.
-
-        On success (ret_code == 0): reset backoff state.
-        On 10006: triggers backoff escalation.
-        On other errors: no backoff change (fail-fast).
-        """
+    def on_10006_abort(self) -> None:
+        """Abort current tick. Set time-based cooldown. No retry inside same tick."""
         with self._lock:
-            if ret_code == 0:
-                # Success — reset backoff
-                self._backoff_multiplier = 0.0
-                self._cooldown_until = 0.0
-                # Still track remaining from headers
-                if headers:
-                    remaining = headers.get(self.HEADER_REMAINING)
-                    if remaining is not None:
-                        try:
-                            self._remaining = int(remaining)
-                        except ValueError:
-                            pass
-                return
+            self._backoff_multiplier = min(self._backoff_multiplier + 1.0, 8.0)
+            self._cooldown_until = time.monotonic() + self.get_cooldown_seconds_unlocked()
+            self._cooldown_set = True
+            self._post_cooldown_clean_ticks = 0
 
-            if ret_code == 10006:
-                self.on_10006()
-
-    def should_throttle(self) -> bool:
-        """
-        Returns True if the next REST request should wait before sending.
-
-        Triggers if:
-        - A 10006 backoff is active (cooldown_until > now)
-        - Remaining quota is very low (≤ 2)
-        """
+    def should_skip_tick(self) -> bool:
+        """True iff cooldown window is still active. Purely time-based."""
         with self._lock:
             now = time.monotonic()
             if now < self._cooldown_until:
+                return True
+            return False
+
+    def mark_tick_clean(self) -> None:
+        """Advance post-cooldown clean tick counter.
+        Two consecutive clean ticks after cooldown expires → full reset."""
+        with self._lock:
+            now = time.monotonic()
+            if now < self._cooldown_until:
+                # Cooldown still active — do nothing
+                return
+            if not self._cooldown_set:
+                # No cooldown was ever set — nothing to recover from
+                return
+            if self._backoff_multiplier > 0:
+                self._post_cooldown_clean_ticks += 1
+                if self._post_cooldown_clean_ticks >= 2:
+                    self._backoff_multiplier = 0.0
+                    self._cooldown_until = 0.0
+                    self._cooldown_set = False
+                    self._post_cooldown_clean_ticks = 0
+
+    def should_throttle(self) -> bool:
+        """Block requests while cooldown active OR backoff multiplier elevated."""
+        with self._lock:
+            now = time.monotonic()
+            if now < self._cooldown_until:
+                return True
+            if self._backoff_multiplier > 0:
                 return True
             if self._remaining <= 2:
                 return True
             return False
 
     def get_cooldown_seconds(self) -> float:
-        """
-        Returns seconds to sleep before the next request.
-
-        Exponential backoff: base × 2^multiplier, capped at MAX.
-        ± jitter randomized each call.
-        """
+        """Seconds to sleep before the next request."""
         with self._lock:
             base = self.COOLDOWN_BASE_SECONDS * (2 ** self._backoff_multiplier)
             jitter = random.uniform(-self.JITTER_RANGE_SECONDS, self.JITTER_RANGE_SECONDS)
             cooldown = min(base + jitter, self.COOLDOWN_MAX_SECONDS)
-            return max(cooldown, 1.0)  # never sleep less than 1s
-
-    def on_10006(self) -> None:
-        """
-        Called when a 10006 (too many requests) retCode is received.
-
-        Escalates backoff multiplier by 1. Sets cooldown_until.
-        Does NOT sleep — caller is responsible for calling sleep(get_cooldown_seconds()).
-        """
-        with self._lock:
-            self._backoff_multiplier = min(self._backoff_multiplier + 1.0, 8.0)
-            self._last_10006_at = time.monotonic()
-            self._cooldown_until = time.monotonic() + self.get_cooldown_seconds_unlocked()
+            return max(cooldown, 1.0)
 
     def get_cooldown_seconds_unlocked(self) -> float:
-        """Internal: get cooldown seconds without acquiring lock. Caller must hold lock."""
+        """Internal: without acquiring lock. Caller must hold lock."""
         base = self.COOLDOWN_BASE_SECONDS * (2 ** self._backoff_multiplier)
         jitter = random.uniform(-self.JITTER_RANGE_SECONDS, self.JITTER_RANGE_SECONDS)
         cooldown = min(base + jitter, self.COOLDOWN_MAX_SECONDS)
         return max(cooldown, 1.0)
 
-    def reset(self) -> None:
-        """Full reset — clears all backoff state. Call on startup or major state change."""
+    def record_response(self, headers: Optional[dict[str, str]], ret_code: Optional[int]) -> None:
+        """Record response headers. Track remaining quota on success."""
         with self._lock:
-            self._reset()
+            if ret_code == 0 and headers:
+                remaining = headers.get(self.HEADER_REMAINING)
+                if remaining is not None:
+                    try:
+                        self._remaining = int(remaining)
+                    except ValueError:
+                        pass
+
+    def reset(self) -> None:
+        """Full reset — clears all backoff state."""
+        with self._lock:
+            self._backoff_multiplier = 0.0
+            self._cooldown_until = 0.0
+            self._cooldown_set = False
+            self._post_cooldown_clean_ticks = 0
