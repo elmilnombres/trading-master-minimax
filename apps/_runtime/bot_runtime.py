@@ -122,7 +122,25 @@ class BotRuntime:
 
         # Market data
         self._fetcher = MarketDataFetcher(self._subaccount_client)
-        self._market_data = MarketDataProvider(self._fetcher)
+        self._stream_manager: WSStreamManager | None = None
+
+        if runtime_config.use_ws_market_data:
+            # Alpha Phase B: use WS-first provider
+            from core.market_data.ws_stream_manager import WSStreamManager
+            from core.market_data.ws_provider import WSMarketDataProvider
+
+            self._stream_manager = WSStreamManager(
+                symbol=bot_config.symbol,
+                on_stale_callback=self._on_ws_stale,
+            )
+            self._stream_manager.start()
+            self._market_data = WSMarketDataProvider(
+                stream_manager=self._stream_manager,
+                fetcher=self._fetcher,
+            )
+        else:
+            # Default: REST-based market data
+            self._market_data = MarketDataProvider(self._fetcher)
 
         # State store
         self._store = StateStore(
@@ -239,6 +257,11 @@ class BotRuntime:
                 time.sleep(self._rt.tick_interval_seconds)
 
         self._shutdown()
+
+    def _on_ws_stale(self, stale_timeframes: list) -> None:
+        """Called by WSStreamManager when timeframes go stale — log and continue."""
+        tf_names = [tf.value for tf in stale_timeframes]
+        print(f"[{self._cfg.bot_id}] WS stale timeframes: {tf_names} — using REST fallback")
 
     def _tick(self) -> None:
         """One tick of the bot loop."""
@@ -609,10 +632,8 @@ class BotRuntime:
         print(f"[{self._cfg.bot_id}] Shutdown requested")
         self._running = False
 
-    def _shutdown(self) -> None:
-        """Graceful shutdown: persist state, write stopped heartbeat."""
-        print(f"[{self._cfg.bot_id}] Persisting final state...")
-        self._store.snapshot()
+        if self._stream_manager:
+            self._stream_manager.stop()
 
         self._heartbeat.write(status="stopped", is_frozen=False)
 

@@ -22,3 +22,8 @@ default_symbol: BTCUSDT
 
 # Instrument fetch: cache refresh TTL in seconds.
 instrument_cache_ttl_seconds: 300
+
+# Market data mode:
+# False (default): REST polling — works on all bots
+# True: WebSocket-first — Alpha Phase B only. Requires `websockets` package.
+use_ws_market_data: false

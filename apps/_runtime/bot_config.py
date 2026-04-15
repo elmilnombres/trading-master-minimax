@@ -71,6 +71,7 @@ class RuntimeConfig:
     heartbeat_dir: Path
     default_symbol: str
     instrument_cache_ttl_seconds: int
+    use_ws_market_data: bool = False  # True: WS-first (Alpha Phase B). False: REST (default)
 
 
 def load_runtime_config() -> RuntimeConfig:
@@ -92,6 +93,7 @@ def load_runtime_config() -> RuntimeConfig:
         heartbeat_dir=_resolve_dir(raw.get("heartbeat_dir", "/app/heartbeat")),
         default_symbol=str(raw.get("default_symbol", "BTCUSDT")),
         instrument_cache_ttl_seconds=int(raw.get("instrument_cache_ttl_seconds", 300)),
+        use_ws_market_data=bool(raw.get("use_ws_market_data", False)),
     )
 
 

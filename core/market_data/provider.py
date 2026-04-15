@@ -49,13 +49,28 @@ class MarketDataProvider:
     Provides high-level market data access to strategy engines.
     Handles: multi-timeframe fetch, ATR calculation, H4 close validation,
     killzone detection, spread monitoring.
+
+    Can optionally use a WS stream manager (WSStreamManager) for live data.
+    When stream_manager is provided, delegated to WSMarketDataProvider logic.
+    When None, uses existing REST fetcher path.
     """
 
     GRACE_SECONDS_H4 = 60  # frozen constant Q1
 
-    def __init__(self, fetcher: MarketDataFetcher, timezone_str: str = "UTC"):
+    def __init__(
+        self,
+        fetcher: MarketDataFetcher,
+        stream_manager=None,  # type: ignore — WSStreamManager | None, set by subclass
+    ):
         self._fetcher = fetcher
-        self._timezone = timezone_str  # for killzone display; internal logic uses UTC
+        self._stream_manager = stream_manager
+        self._timezone = "UTC"  # for killzone display; internal logic uses UTC
+
+    def get_snapshot(self, symbol: str) -> MarketSnapshot:
+        """
+        Build a comprehensive MarketSnapshot for a symbol.
+        Fetches H4, H1, M15, M5, M1 candles + current ticker.
+        """
 
     def get_snapshot(self, symbol: str) -> MarketSnapshot:
         """

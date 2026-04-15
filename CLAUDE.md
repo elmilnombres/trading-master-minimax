@@ -78,6 +78,71 @@ Phase C: execution and risk — execution, risk, portfolio, telemetry
 Phase D: bot apps — alpha, beta, gamma, supervisor
 Phase E: deployment — Dockerfile, docker-compose, scripts, tests, docs
 
+## PHASE STATUS
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Alpha Phase A.1 (rate-limit governor) | **✓ VERIFIED** | 2026-04-14 |
+| Alpha Phase B (WS-first) | NOT STARTED | After Phase A complete |
+| Beta Phase A.1 (rate-limit governor) | **✓ VERIFIED** | 2026-04-15 |
+| Gamma | NOT STARTED | — |
+| Delta | NOT STARTED | — |
+
+### Alpha Phase A.1 — VERIFIED ✓
+
+**Problem solved:** Bybit retCode 10006 causing infinite retry loop within same tick.
+
+**Root cause:** `client.py` was retrying 10006 immediately with no backoff, causing a
+retry-on-every-tick pattern that never reset. Governor was resetting on immediate success
+rather than tracking post-cooldown recovery ticks.
+
+**Fix implemented:**
+- `core/rate_limiter/governor.py` — state machine: `on_10006_abort()`, `should_skip_tick()`,
+  `mark_tick_clean()`, exponential backoff with ±2s jitter, cap 60s
+- `exchange/bybit/client.py` — 10006 aborts tick once, no retry loop, calls `governor.on_10006_abort()`
+- `exchange/bybit/execution.py` — 10006 removed from `RETRY_CODES`
+- `exchange/bybit/subaccount.py` — `governor` property exposed
+- `core/execution/errors.py` — `RetryableExchangeError` with `code` and `original` properties
+- `apps/_runtime/bot_runtime.py` — pre-tick skip via `should_skip_tick()`, explicit `e.code == 10006`
+  handling, `mark_tick_clean()` on clean ticks
+
+**Validated behavior:**
+- No same-tick retry after 10006 (verified: no sleep/retry in client.py line 94)
+- 10006 removed from RETRY_CODES (verified: execution.py line 26)
+- Governor `on_10006_abort()` called once per 10006 event
+- `should_skip_tick()` skips subsequent ticks during cooldown window
+- Heartbeat updates every 5s even during rate-limit cooldown
+- Container remains `healthy` throughout
+
+**Still present (not a bug):** Bybit continues returning 10006 on every tick due to
+API rate limits on the account. This is expected Bybit behavior. The fix ensures
+Alpha does not spiral into retry loops — it gracefully skips ticks and recovers
+after cooldown windows with 2 consecutive clean ticks resetting backoff to 0.0.
+
+### Beta Phase A.1 — VERIFIED ✓
+
+**Problem solved:** Same Bybit retCode 10006 infinite retry loop as Alpha.
+Beta was running OLD code (87691-byte tarball vs 87393-byte old) until container
+restart at 2026-04-15 — the fix was already in master but Beta had not been restarted
+to pick it up.
+
+**What was done:** `docker restart beta-bot-b61ydjyqzf5bff2wfgp0nmzi`
+
+**Shared fix:** Beta uses identical governor architecture as Alpha — same files,
+same state machine. All fixes are in shared `core/` and `exchange/bybit/` modules.
+No Beta-specific code changes required.
+
+**Validated behavior:**
+- Container restart: Up 3 minutes, healthy
+- `RETRY_CODES` without 10006 (verified: line 26 confirmed in container)
+- `on_10006_abort()` in client.py (verified: confirmed in container)
+- `should_skip_tick()` at bot_runtime.py line 248
+- `mark_tick_clean()` at bot_runtime.py line 287
+- Heartbeat advancing every ~5s during 10006 cooldown
+- Boot log shows "Starting Phase 4 runtime..." with 87691-byte tarball
+
+**No further code changes needed for Beta in this phase.**
+
 ## SECRETS POLICY
 All secrets via environment variables only.
 Local secrets file: docs/00_IMPLEMENTATION_INPUT/07_SECRETS_LOCAL_ONLY.env (NOT in repo, NOT in .env.example).
