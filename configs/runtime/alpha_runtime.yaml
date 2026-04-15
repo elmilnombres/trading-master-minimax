@@ -1,0 +1,2 @@
+# Alpha runtime override — enables WS-first market data (Alpha Phase B)
+use_ws_market_data: true

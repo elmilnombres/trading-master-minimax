@@ -74,9 +74,12 @@ class RuntimeConfig:
     use_ws_market_data: bool = False  # True: WS-first (Alpha Phase B). False: REST (default)
 
 
-def load_runtime_config() -> RuntimeConfig:
+def load_runtime_config(bot_id: str | None = None) -> RuntimeConfig:
     """
     Load shared runtime config from configs/runtime/default.yaml.
+
+    If bot_id is provided, also checks configs/runtime/{bot_name}_runtime.yaml
+    for per-bot overrides (extends default, does not replace).
 
     Raises FileNotFoundError if the config file is missing.
     """
@@ -84,16 +87,25 @@ def load_runtime_config() -> RuntimeConfig:
         raise FileNotFoundError(f"Runtime config not found: {_RUNTIME_CONFIG_FILE}")
 
     with open(_RUNTIME_CONFIG_FILE) as f:
-        raw: dict[str, Any] = yaml.safe_load(f)
+        base: dict[str, Any] = yaml.safe_load(f)
+
+    # Per-bot override (e.g. alpha_bot → configs/runtime/alpha_runtime.yaml)
+    if bot_id:
+        config_name = bot_id.removesuffix("_bot")
+        override_file = _CONFIGS_DIR / "runtime" / f"{config_name}_runtime.yaml"
+        if override_file.exists():
+            with open(override_file) as f:
+                override: dict[str, Any] = yaml.safe_load(f)
+                base.update(override)  # per-bot keys override defaults
 
     return RuntimeConfig(
-        tick_interval_seconds=int(raw.get("tick_interval_seconds", 5)),
-        supervisor_poll_seconds=int(raw.get("supervisor_poll_seconds", 5)),
-        state_dir=_resolve_dir(raw.get("state_dir", "/app/state")),
-        heartbeat_dir=_resolve_dir(raw.get("heartbeat_dir", "/app/heartbeat")),
-        default_symbol=str(raw.get("default_symbol", "BTCUSDT")),
-        instrument_cache_ttl_seconds=int(raw.get("instrument_cache_ttl_seconds", 300)),
-        use_ws_market_data=bool(raw.get("use_ws_market_data", False)),
+        tick_interval_seconds=int(base.get("tick_interval_seconds", 5)),
+        supervisor_poll_seconds=int(base.get("supervisor_poll_seconds", 5)),
+        state_dir=_resolve_dir(base.get("state_dir", "/app/state")),
+        heartbeat_dir=_resolve_dir(base.get("heartbeat_dir", "/app/heartbeat")),
+        default_symbol=str(base.get("default_symbol", "BTCUSDT")),
+        instrument_cache_ttl_seconds=int(base.get("instrument_cache_ttl_seconds", 300)),
+        use_ws_market_data=bool(base.get("use_ws_market_data", False)),
     )
 
 

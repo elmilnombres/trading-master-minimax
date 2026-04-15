@@ -36,7 +36,7 @@ def main() -> None:
     print(f"[{bot_name}] Starting Phase 4 runtime...")
 
     bot_config = load_bot_config(bot_name)
-    runtime_config = load_runtime_config()
+    runtime_config = load_runtime_config(bot_name)
 
     print(f"[{bot_name}] Subaccount: {bot_config.subaccount_name}")
     print(f"[{bot_name}] Symbol: {bot_config.symbol}")
