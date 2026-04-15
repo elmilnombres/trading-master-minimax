@@ -53,13 +53,16 @@ class WSStreamManager:
 
     def __init__(
         self,
+        symbol: str,
         on_stale_callback: Callable[[list[Timeframe]], None] | None = None,
     ):
         """
         Args:
+            symbol: trading symbol, e.g. "BTCUSDT"
             on_stale_callback: called when any timeframe goes stale.
                               Receiver triggers REST fallback for stale timeframes.
         """
+        self._symbol = symbol
         self._cache = WSMarketCache()
         self._ws_client: Optional[BybitWSClient] = None
         self._on_stale_callback = on_stale_callback or (lambda _: None)

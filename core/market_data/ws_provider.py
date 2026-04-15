@@ -110,7 +110,7 @@ class WSMarketDataProvider:
 
         # Fall back to REST
         return self._fetcher.fetch_closed_candles(
-            self._stream_manager.SYMBOL, timeframe, count=count
+            self._stream_manager._symbol, timeframe, count=count
         )
 
     # ── Helpers (mirrored from MarketDataProvider) ─────────────────────────
